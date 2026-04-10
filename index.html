@@ -178,14 +178,18 @@
 
     // ── APP ──────────────────────────────────────────────────────────────────────
     function App() {
-      const [selected, setSelected] = useState(new Set());
-      const [search, setSearch]     = useState('');
-      const [fDay, setFDay]         = useState('');
-      const [fCert, setFCert]       = useState('');
-      const [fExp, setFExp]         = useState(false);
-      const [fBT, setFBT]           = useState(false);
-      const [fFmt, setFFmt]         = useState('');
-      const [hovered, setHovered]   = useState(null);
+      const [selected, setSelected]       = useState(new Set());
+      const [search, setSearch]           = useState('');
+      const [fDay, setFDay]               = useState('');
+      const [fCert, setFCert]             = useState('');
+      const [fExp, setFExp]               = useState(false);
+      const [fBT, setFBT]                 = useState(false);
+      const [fFmt, setFFmt]               = useState('');
+      const [hovered, setHovered]         = useState(null);
+      const [customCourses, setCustomCourses] = useState([]);
+      const [showAddModal, setShowAddModal]   = useState(false);
+
+      const allCourses = useMemo(() => [...COURSES, ...customCourses], [customCourses]);
 
       const toggle = id => setSelected(prev => {
         const n = new Set(prev);
@@ -193,7 +197,7 @@
         return n;
       });
 
-      const selCourses = useMemo(() => COURSES.filter(c => selected.has(c.id)), [selected]);
+      const selCourses = useMemo(() => allCourses.filter(c => selected.has(c.id)), [allCourses, selected]);
       const totalUnits = useMemo(() => selCourses.reduce((s,c) => s + c.units, 0), [selCourses]);
 
       const conflicts = useMemo(() => {
@@ -212,7 +216,7 @@
         return set;
       }, [selCourses]);
 
-      const visible = useMemo(() => COURSES.filter(c => {
+      const visible = useMemo(() => allCourses.filter(c => {
         if (search) {
           const q = search.toLowerCase();
           if (!c.name.toLowerCase().includes(q) && !c.id.toLowerCase().includes(q) && !c.inst.toLowerCase().includes(q)) return false;
@@ -226,7 +230,13 @@
         if (fBT && !c.bt) return false;
         if (fFmt && c.fmt !== fFmt) return false;
         return true;
-      }), [search, fDay, fCert, fExp, fBT, fFmt]);
+      }), [allCourses, search, fDay, fCert, fExp, fBT, fFmt]);
+
+      const addCourse = (course) => {
+        setCustomCourses(prev => [...prev, course]);
+        setSelected(prev => { const n = new Set(prev); n.add(course.id); return n; });
+        setShowAddModal(false);
+      };
 
       return (
         <div style={{ display:'flex', flexDirection:'column', height:'100vh' }}>
@@ -234,7 +244,7 @@
           <div style={{ background:'#003262', color:'white', padding:'10px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }}>
             <div>
               <div style={{ fontSize:'17px', fontWeight:800, letterSpacing:'-0.3px' }}>Haas MBA Course Scheduler</div>
-              <div style={{ fontSize:'11px', opacity:0.6, marginTop:'1px' }}>Fall 2025 Electives · {COURSES.length} courses available</div>
+              <div style={{ fontSize:'11px', opacity:0.6, marginTop:'1px' }}>Fall 2025 Electives · {allCourses.length} courses available</div>
             </div>
             <div style={{ display:'flex', gap:'12px', alignItems:'center' }}>
               {conflicts.size > 0 && (
@@ -309,6 +319,13 @@
               <div style={{ flex:1, overflowY:'auto' }}>
                 {visible.map(c => <CourseCard key={c.id} course={c} selected={selected.has(c.id)} conflict={conflicts.has(c.id)} hovered={hovered===c.id} onToggle={() => toggle(c.id)} onHover={setHovered} />)}
               </div>
+              {/* Add new class button */}
+              <div style={{ padding:'10px 12px', borderTop:'1px solid #E2E8F0', flexShrink:0 }}>
+                <button onClick={() => setShowAddModal(true)}
+                  style={{ width:'100%', padding:'9px', background:'#003262', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontSize:'13px', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+                  + Add New Class
+                </button>
+              </div>
             </div>
 
             {/* ── MAIN ── */}
@@ -316,6 +333,9 @@
               <ScheduleGrid courses={selCourses} conflicts={conflicts} hovered={hovered} onRemove={toggle} />
             </div>
           </div>
+
+          {/* ── ADD MODAL ── */}
+          {showAddModal && <AddCourseModal onAdd={addCourse} onClose={() => setShowAddModal(false)} existingCount={customCourses.length} />}
         </div>
       );
     }
@@ -461,6 +481,144 @@
               </div>
             </div>
           )}
+        </div>
+      );
+    }
+
+    // ── ADD COURSE MODAL ──────────────────────────────────────────────────────────
+    function AddCourseModal({ onAdd, onClose, existingCount }) {
+      const [form, setForm] = useState({
+        name:'', id:'', units:'3', inst:'', days:[], startTime:'', endTime:'', fmt:'15 weeks', notes:''
+      });
+      const [error, setError] = useState('');
+
+      const DAY_OPTS = ['M','T','W','Th','F','S','Su'];
+      const DAY_LABELS = { M:'Mon', T:'Tue', W:'Wed', Th:'Thu', F:'Fri', S:'Sat', Su:'Sun' };
+
+      const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      const toggleDay = (d) => set('days', form.days.includes(d) ? form.days.filter(x=>x!==d) : [...form.days, d]);
+
+      // Build a day string like "MW" or "TTh" from array
+      const buildDayStr = (arr) => {
+        const order = ['M','T','W','Th','F','S','Su'];
+        return order.filter(d => arr.includes(d)).join('');
+      };
+
+      const submit = () => {
+        if (!form.name.trim()) return setError('Course name is required.');
+        if (!form.days.length) return setError('Select at least one day.');
+        if (!form.startTime || !form.endTime) return setError('Start and end times are required.');
+        const [sh,sm] = form.startTime.split(':').map(Number);
+        const [eh,em] = form.endTime.split(':').map(Number);
+        if (sh*60+sm >= eh*60+em) return setError('End time must be after start time.');
+
+        const toAmPm = (h,m) => {
+          const p = h >= 12 ? 'PM' : 'AM';
+          const h12 = h > 12 ? h-12 : h===0 ? 12 : h;
+          return `${h12}:${m.toString().padStart(2,'0')}${p}`;
+        };
+        const timeStr = `${toAmPm(sh,sm)}-${toAmPm(eh,em)}`;
+        const id = form.id.trim() || `CUSTOM-${existingCount + 1}`;
+
+        onAdd({
+          id, name: form.name.trim(), units: parseInt(form.units)||3,
+          inst: form.inst.trim() || 'TBD',
+          days: buildDayStr(form.days),
+          time: timeStr, fmt: form.fmt, dates:'', xlist:'', notes: form.notes.trim(),
+          exp:false, bt:false, noDrop:false, cert:'', fn:'', ind:''
+        });
+      };
+
+      const inputStyle = { width:'100%', padding:'7px 9px', border:'1px solid #CBD5E1', borderRadius:'6px', fontSize:'13px', outline:'none', boxSizing:'border-box' };
+
+      return (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center' }}
+          onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+          <div style={{ background:'white', borderRadius:'12px', width:'460px', maxWidth:'95vw', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}>
+            {/* Modal header */}
+            <div style={{ background:'#003262', color:'white', padding:'14px 20px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span style={{ fontWeight:800, fontSize:'15px' }}>Add New Class</span>
+              <button onClick={onClose} style={{ background:'none', border:'none', color:'white', fontSize:'20px', cursor:'pointer', lineHeight:1, padding:'0 4px' }}>×</button>
+            </div>
+            {/* Form */}
+            <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:'12px', maxHeight:'70vh', overflowY:'auto' }}>
+              {error && <div style={{ background:'#FEE2E2', color:'#B91C1C', padding:'8px 12px', borderRadius:'6px', fontSize:'13px' }}>{error}</div>}
+
+              <div>
+                <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>Course Name *</label>
+                <input style={inputStyle} placeholder="e.g. Advanced Corporate Finance" value={form.name} onChange={e => set('name', e.target.value)} />
+              </div>
+
+              <div style={{ display:'flex', gap:'10px' }}>
+                <div style={{ flex:1 }}>
+                  <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>Course ID</label>
+                  <input style={inputStyle} placeholder="e.g. MBA299X-1" value={form.id} onChange={e => set('id', e.target.value)} />
+                </div>
+                <div style={{ width:'80px' }}>
+                  <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>Units</label>
+                  <select value={form.units} onChange={e => set('units', e.target.value)} style={{ ...inputStyle }}>
+                    {[1,2,3,4].map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>Instructor</label>
+                <input style={inputStyle} placeholder="e.g. Smith, J." value={form.inst} onChange={e => set('inst', e.target.value)} />
+              </div>
+
+              <div>
+                <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'6px' }}>Days *</label>
+                <div style={{ display:'flex', gap:'6px', flexWrap:'wrap' }}>
+                  {DAY_OPTS.map(d => {
+                    const on = form.days.includes(d);
+                    return (
+                      <button key={d} type="button" onClick={() => toggleDay(d)}
+                        style={{ padding:'5px 12px', borderRadius:'6px', border:`1.5px solid ${on ? '#003262' : '#CBD5E1'}`, background: on ? '#003262' : 'white', color: on ? 'white' : '#475569', fontSize:'12px', fontWeight:600, cursor:'pointer' }}>
+                        {DAY_LABELS[d]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display:'flex', gap:'10px' }}>
+                <div style={{ flex:1 }}>
+                  <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>Start Time *</label>
+                  <input type="time" style={inputStyle} value={form.startTime} onChange={e => set('startTime', e.target.value)} />
+                </div>
+                <div style={{ flex:1 }}>
+                  <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>End Time *</label>
+                  <input type="time" style={inputStyle} value={form.endTime} onChange={e => set('endTime', e.target.value)} />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>Format</label>
+                <select value={form.fmt} onChange={e => set('fmt', e.target.value)} style={inputStyle}>
+                  <option value="15 weeks">15 Weeks</option>
+                  <option value="10 Weeks">10 Weeks</option>
+                  <option value="7 Weeks">7 Weeks</option>
+                  <option value="Block Week">Block Week</option>
+                  <option value="2 Sundays">2 Sundays</option>
+                  <option value="Saturdays">Saturdays</option>
+                  <option value="Full weekend">Full Weekend</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>Notes</label>
+                <input style={inputStyle} placeholder="Optional notes" value={form.notes} onChange={e => set('notes', e.target.value)} />
+              </div>
+            </div>
+            {/* Footer */}
+            <div style={{ padding:'12px 20px', borderTop:'1px solid #E2E8F0', display:'flex', gap:'8px', justifyContent:'flex-end' }}>
+              <button onClick={onClose} style={{ padding:'8px 16px', border:'1px solid #CBD5E1', borderRadius:'6px', background:'white', cursor:'pointer', fontSize:'13px', color:'#475569' }}>Cancel</button>
+              <button onClick={submit} style={{ padding:'8px 20px', border:'none', borderRadius:'6px', background:'#003262', color:'white', cursor:'pointer', fontSize:'13px', fontWeight:700 }}>Add to Schedule</button>
+            </div>
+          </div>
         </div>
       );
     }
