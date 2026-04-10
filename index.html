@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Haas MBA Course Scheduler</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #F8FAFC; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #F1F5F9; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    // ── GRID CONSTANTS ──────────────────────────────────────────────────────────
+    const GRID_START = 7 * 60;   // 7:00 AM in minutes
+    const GRID_END   = 22 * 60;  // 10:00 PM
+    const SLOT_H     = 44;       // px per 30-min slot
+    const TOTAL_SLOTS = (GRID_END - GRID_START) / 30;
+    const GRID_H      = TOTAL_SLOTS * SLOT_H;
+    const DAYS        = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+    // ── COLORS ──────────────────────────────────────────────────────────────────
+    const COLORS = {
+      finance:        { bg:'#DBEAFE', b:'#3B82F6', t:'#1D4ED8', label:'Finance' },
+      operations:     { bg:'#F3E8FF', b:'#8B5CF6', t:'#6D28D9', label:'Operations & Data' },
+      professional:   { bg:'#FEF9C3', b:'#CA8A04', t:'#92400E', label:'Professional Skills' },
+      marketing:      { bg:'#FCE7F3', b:'#EC4899', t:'#BE185D', label:'Marketing' },
+      policy:         { bg:'#FEF3C7', b:'#F59E0B', t:'#92400E', label:'Policy & Strategy' },
+      realestate:     { bg:'#FFEDD5', b:'#F97316', t:'#C2410C', label:'Real Estate' },
+      technology:     { bg:'#E0E7FF', b:'#6366F1', t:'#4338CA', label:'Technology & Product' },
+      socialimpact:   { bg:'#CCFBF1', b:'#14B8A6', t:'#0F766E', label:'Social Impact' },
+      entrepreneurship:{ bg:'#DCFCE7', b:'#22C55E', t:'#15803D', label:'Entrepreneurship' },
+      healthcare:     { bg:'#FEE2E2', b:'#EF4444', t:'#B91C1C', label:'Healthcare' },
+      other:          { bg:'#F3F4F6', b:'#9CA3AF', t:'#374151', label:'Other' },
+    };
+
+    // ── UTILITIES ────────────────────────────────────────────────────────────────
+    function parseTime(s) {
+      if (!s) return null;
+      const m = s.trim().match(/(\d+)(?::(\d+))?\s*(AM|PM)/i);
+      if (!m) return null;
+      let h = parseInt(m[1]), min = m[2] ? parseInt(m[2]) : 0;
+      const p = m[3].toUpperCase();
+      if (p === 'PM' && h !== 12) h += 12;
+      if (p === 'AM' && h === 12) h = 0;
+      return h * 60 + min;
+    }
+    function parseRange(s) {
+      if (!s) return null;
+      const i = s.indexOf('-');
+      if (i < 0) return null;
+      const a = parseTime(s.slice(0, i)), b = parseTime(s.slice(i + 1));
+      return a != null && b != null ? { start: a, end: b } : null;
+    }
+    function parseDays(s) {
+      if (!s) return [];
+      const special = { MTWThF:[0,1,2,3,4], TTh:[1,3], MW:[0,2], FSSu:[4,5,6], FFSSu:[4,5,6] };
+      if (special[s]) return special[s];
+      const r = []; let t = s;
+      while (t.length) {
+        if (t.startsWith('Th'))  { r.push(3); t=t.slice(2); }
+        else if (t.startsWith('Su')) { r.push(6); t=t.slice(2); }
+        else if (t.startsWith('M')) { r.push(0); t=t.slice(1); }
+        else if (t.startsWith('T')) { r.push(1); t=t.slice(1); }
+        else if (t.startsWith('W')) { r.push(2); t=t.slice(1); }
+        else if (t.startsWith('F')) { r.push(4); t=t.slice(1); }
+        else if (t.startsWith('S')) { r.push(5); t=t.slice(1); }
+        else t = t.slice(1);
+      }
+      return [...new Set(r)];
+    }
+    function getArea(id) {
+      const m = id.match(/MBA(\d+)/); if (!m) return 'other';
+      const n = parseInt(m[1]);
+      if (n === 212) return 'socialimpact';
+      if (n >= 220 && n < 240) return 'finance';
+      if (n >= 240 && n < 252) return 'operations';
+      if (n >= 252 && n < 260) return 'professional';
+      if (n >= 260 && n < 270) return 'marketing';
+      if (n >= 270 && n < 280) return 'policy';
+      if (n >= 280 && n < 290) return 'realestate';
+      if (n === 290) return 'technology';
+      if (n === 291) return 'professional';
+      if (n === 292) return 'socialimpact';
+      if (n === 295) return 'entrepreneurship';
+      if (n === 296) return 'professional';
+      if (n === 297) return 'healthcare';
+      if (n === 299) return 'marketing';
+      return 'other';
+    }
+    function toY(m) { return ((m - GRID_START) / 30) * SLOT_H; }
+    function toH(d) { return (d / 30) * SLOT_H; }
+    function fmt(m) {
+      const h = Math.floor(m / 60), mn = m % 60, p = h >= 12 ? 'PM' : 'AM';
+      return `${h > 12 ? h-12 : h===0?12:h}:${mn.toString().padStart(2,'0')} ${p}`;
+    }
+
+    // ── COURSE DATA ──────────────────────────────────────────────────────────────
+    const COURSES = [
+      { id:'MBA212A-1',   name:'Cleantech to Market',                                 units:3, inst:'Luce, A., Martinez, A., Steel, B.', days:'W',       time:'2:00PM-5:00PM',  fmt:'15 weeks',     dates:'8/26–12/9',         xlist:'EWMBA', notes:'',                    exp:true,  bt:true,  noDrop:true,  cert:'SB',     fn:'Venture Capital / PE',         ind:'Climate Tech/Energy' },
+      { id:'MBA223-1',    name:'Corporate Financial Reporting',                        units:3, inst:'Paul, T.',                          days:'Th',      time:'8:00AM-11:00AM', fmt:'15 weeks',     dates:'8/27–12/10',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'General Management',           ind:'Venture Capital' },
+      { id:'MBA233-1',    name:'Asset Management',                                     units:3, inst:'Olesky, S.',                        days:'TTh',     time:'2:00PM-3:30PM',  fmt:'15 weeks',     dates:'8/25–12/10',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Investment Management',        ind:'Investment Management' },
+      { id:'MBA236G-1B',  name:'Designing Financial Models that Work (Sec 1)',         units:1, inst:'Herbert-Creek, J.',                 days:'W',       time:'2:00PM-4:00PM',  fmt:'7 Weeks',      dates:'9/2–10/14',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'BA',     fn:'Finance',                      ind:'Consulting' },
+      { id:'MBA236G-2B',  name:'Designing Financial Models that Work (Sec 2)',         units:1, inst:'Herbert-Creek, J.',                 days:'W',       time:'4:00PM-6:00PM',  fmt:'7 Weeks',      dates:'9/2–10/14',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'BA',     fn:'Finance',                      ind:'Consulting' },
+      { id:'MBA236I-1',   name:'Fixed Income',                                         units:2, inst:'Ananthaswamy, S.',                  days:'Th',      time:'6:00PM-9:30PM',  fmt:'10 Weeks',     dates:'8/27–11/5',         xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Finance',                      ind:'Investment Banking' },
+      { id:'MBA236L-1F',  name:'Private Equity Leveraged Buyouts',                     units:2, inst:'Hellmer, N., Hirji, A.',            days:'Th',      time:'2:00PM-5:00PM',  fmt:'10 Weeks',     dates:'8/27–11/19',        xlist:'EWMBA', notes:'Online',              exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Venture Capital / PE',         ind:'Investment Banking' },
+      { id:'MBA236V-1',   name:'New Venture Finance',                                  units:2, inst:"O'Neill, M.",                       days:'Th',      time:'6:00PM-9:30PM',  fmt:'10 Weeks',     dates:'8/27–11/5',         xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Venture Capital / PE',         ind:'Venture Capital' },
+      { id:'MBA237-1',    name:'Valuation Models',                                     units:1, inst:'Herbert-Creek, J.',                 days:'M',       time:'2:00PM-4:00PM',  fmt:'7 Weeks',      dates:'8/31–10/19',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'BA',     fn:'Finance',                      ind:'Investment Banking' },
+      { id:'MBA237-11',   name:'Search Funds',                                         units:1, inst:'Simon, J.',                         days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'10/25 & 11/1',      xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Venture Capital / PE',         ind:'Venture Capital' },
+      { id:'MBA237.2',    name:'Venture Capital Law and Finance',                      units:3, inst:'Eldar, Ofer',                       days:'W',       time:'10:00AM-12:40PM', fmt:'15 weeks',    dates:'8/19–11/30',        xlist:'LAW',   notes:'Starts before other electives', exp:false, bt:false, noDrop:false, cert:'', fn:'',                            ind:'' },
+      { id:'MBA240-1',    name:'Decision Models',                                      units:2, inst:'Morgenstern, I.',                   days:'T',       time:'6:00PM-9:30PM',  fmt:'10 Weeks',     dates:'8/25–10/27',        xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'AI, BA', fn:'Data Scientist / Analyst',     ind:'All' },
+      { id:'MBA246-11',   name:'Project Management',                                   units:1, inst:'Romero-Hernandez, O.',              days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'9/20 & 10/4',       xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Project Management',           ind:'Technology' },
+      { id:'MBA246-1B',   name:'Project Management Case Studies',                      units:1, inst:'Romero-Hernandez, O.',              days:'M',       time:'9:00AM-11:00AM', fmt:'7 Weeks',      dates:'10/19–12/7',        xlist:'',      notes:'',                    exp:false, bt:true,  noDrop:false, cert:'N/A',    fn:'Project Management',           ind:'Real Estate' },
+      { id:'MBA247-1',    name:'Descriptive and Predictive Data Mining',               units:2, inst:'Yang, L.',                          days:'W',       time:'6:00PM-9:30PM',  fmt:'10 Weeks',     dates:'8/26–10/28',        xlist:'EWMBA', notes:'',                    exp:false, bt:true,  noDrop:false, cert:'AI, BA', fn:'Data Scientist / Analyst',     ind:'Technology' },
+      { id:'MBA251A-11F', name:'People Analytics',                                     units:2, inst:'Whiteman, H.',                      days:'S',       time:'9:00AM-1:00PM',  fmt:'Saturdays',    dates:'9/19–10/31',        xlist:'EWMBA', notes:'Online',              exp:false, bt:false, noDrop:false, cert:'AI, BA', fn:'',                            ind:'' },
+      { id:'MBA252-1',    name:'Negotiations and Conflict Resolution (Sec 1)',          units:2, inst:'Delecourt, S.',                     days:'W',       time:'8:00AM-11:00AM', fmt:'10 Weeks',     dates:'8/26–10/28',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'General Management',           ind:'All' },
+      { id:'MBA252-2',    name:'Negotiations and Conflict Resolution (Sec 2)',          units:2, inst:'Delecourt, S.',                     days:'W',       time:'2:00PM-5:00PM',  fmt:'10 Weeks',     dates:'8/26–10/28',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'General Management',           ind:'All' },
+      { id:'MBA254-1A',   name:'Power and Politics in Organizations (Sec 1)',           units:2, inst:'Anderson, C.',                      days:'MW',      time:'2:00PM-4:00PM',  fmt:'7 Weeks',      dates:'8/24–10/14',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Management – Dept Head',        ind:'All' },
+      { id:'MBA254-2A',   name:'Power and Politics in Organizations (Sec 2)',           units:2, inst:'Anderson, C.',                      days:'MW',      time:'4:00PM-6:00PM',  fmt:'7 Weeks',      dates:'8/24–10/14',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Management – Dept Head',        ind:'All' },
+      { id:'MBA256-1',    name:'Global Leadership',                                    units:3, inst:'Gundling, E., Hischier, W.',         days:'Th',      time:'6:00PM-9:30PM',  fmt:'10 Weeks',     dates:'8/27–12/17',        xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Management – General Manager', ind:'All' },
+      { id:'MBA266-1',    name:'Sales Force Management and Channel Strategy',          units:3, inst:'Azhar, W.',                          days:'M',       time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'8/24–12/7',         xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Business Dev / Sales',         ind:'' },
+      { id:'MBA271-1',    name:'Tech and the City: Urban Innovation',                  units:3, inst:'Turner, M.',                         days:'TTh',     time:'11:00AM-12:30PM', fmt:'15 weeks',    dates:'8/25–12/10',        xlist:'',      notes:'',                    exp:false, bt:true,  noDrop:false, cert:'AI',     fn:'Strategy / Planning',          ind:'Climate Tech/Energy' },
+      { id:'MBA277-12',   name:'Disruption Futures',                                   units:2, inst:'Groth, O.',                          days:'S',       time:'9:00AM-1:00PM',  fmt:'Saturdays',    dates:'8/29–10/17',        xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'AI',     fn:'Strategy / Planning',          ind:'Technology' },
+      { id:'MBA282-1',    name:'Real Estate Development',                              units:3, inst:'Williams, D.',                       days:'M',       time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'8/24–12/7',         xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'RE',     fn:'Operations',                   ind:'Real Estate' },
+      { id:'MBA283-1',    name:'Real Estate Finance and Securitization',               units:3, inst:'Bordeu Gazmuri, O.',                 days:'T',       time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'9/1–12/8',          xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'RE',     fn:'Finance',                      ind:'Real Estate' },
+      { id:'MBA287-1',    name:'Finding Your Place in Real Estate',                    units:1, inst:'Franklin, A.',                       days:'T',       time:'4:00PM-6:00PM',  fmt:'7 Weeks',      dates:'10/13–12/15',       xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'',                            ind:'' },
+      { id:'MBA290N-1',   name:'Managing the New Product Development Process',         units:3, inst:'Law, V.',                            days:'TTh',     time:'11:00AM-12:30PM', fmt:'15 weeks',    dates:'8/25–12/10',        xlist:'',      notes:'',                    exp:false, bt:true,  noDrop:false, cert:'AI',     fn:'Product Management',           ind:'Technology' },
+      { id:'MBA290T-11',  name:'From Query to Insights: Analytics with SQL & AI',     units:1, inst:'Varier, R.',                          days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'10/18 & 11/8',      xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'AI, BA', fn:'Product Management',           ind:'Technology' },
+      { id:'MBA290T-13',  name:'AI-Powered PM Crash Course',                          units:1, inst:'Law, V.',                            days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'11/1 & 11/22',      xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'AI',     fn:'',                            ind:'' },
+      { id:'MBA290T.14',  name:'AI Workflow Automation for Business Leaders',          units:1, inst:'Varier, Roopesh',                    days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'10/25 & 11/15',     xlist:'',      notes:'New course!',          exp:false, bt:false, noDrop:false, cert:'',       fn:'',                            ind:'' },
+      { id:'MBA290T-2',   name:'Social Impact Strategy in Commercial Tech',            units:2, inst:'Rosenzweig, A.',                     days:'Th',      time:'2:00PM-4:00PM',  fmt:'15 Weeks',     dates:'8/27–12/10',        xlist:'',      notes:'',                    exp:false, bt:true,  noDrop:false, cert:'N/A',    fn:'',                            ind:'' },
+      { id:'MBA290T-3',   name:'Deep Tech Commercialization Strategies',               units:3, inst:'Heiden, B., Rappaport, M.',          days:'M',       time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'8/24–12/7',         xlist:'',      notes:'Application due 4/13', exp:true,  bt:true,  noDrop:true,  cert:'AI',     fn:'',                            ind:'' },
+      { id:'MBA291E-11F', name:'Neuroscience of Communication & Embodied Leadership', units:2, inst:'Peng, E.',                            days:'FFSSu',   time:'9:55AM-6:00PM',  fmt:'Unique',       dates:'10/30, 11/6–7, 11/13', xlist:'EWMBA', notes:'Online; unique schedule', exp:false, bt:false, noDrop:false, cert:'N/A', fn:'Human Resources',             ind:'Consulting' },
+      { id:'MBA291F-11',  name:'Audience-Focused Communication',                       units:1, inst:'Leipzig, A.',                        days:'S',       time:'9:00AM-5:00PM',  fmt:'2 Saturdays',  dates:'10/17 & 10/31',     xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Human Resources',              ind:'Media & Entertainment' },
+      { id:'MBA291R-11',  name:'Building Trust-Based Relationships',                   units:1, inst:'Ball, R., Caleshu, J.',              days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'10/4 & 10/25',      xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Human Resources',              ind:'Consulting' },
+      { id:'MBA291S-1A',  name:'Storytelling for Leadership',                          units:1, inst:'Fitzpatrick, T.',                    days:'T',       time:'2:00PM-5:00PM',  fmt:'5 Weeks',      dates:'9/15–10/13',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Human Resources',              ind:'Technology' },
+      { id:'MBA292B-11',  name:'Nonprofit Boards',                                     units:1, inst:'Heinrich, L.',                       days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'10/25 & 11/15',     xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Strategy / Planning',          ind:'Nonprofit' },
+      { id:'MBA292C-1F',  name:'Strategic and Sustainable Business Solutions',         units:3, inst:'Radovich, A., Ruben, A.',            days:'T',       time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'8/25–12/8',         xlist:'EWMBA', notes:'Online',              exp:true,  bt:false, noDrop:false, cert:'SB',     fn:'Strategy / Planning',          ind:'Consulting' },
+      { id:'MBA292ID-11', name:'Impact Startup Disco',                                 units:1, inst:'Calderon, J.',                       days:'FSSu',    time:'10:00AM-9:00PM', fmt:'Full weekend', dates:'10/2–10/4',          xlist:'EWMBA', notes:'Unique schedule',     exp:false, bt:true,  noDrop:false, cert:'N/A',    fn:'Venture Capital / PE',         ind:'Startup/Entrepreneurship' },
+      { id:'MBA292K-1',   name:'Food Innovation Studio',                               units:3, inst:'Rosenzweig, W., Pahuja, S.',         days:'T',       time:'6:00PM-8:00PM',  fmt:'15 weeks',     dates:'8/25–12/8',         xlist:'',      notes:'',                    exp:true,  bt:false, noDrop:false, cert:'SB',     fn:'Founder / Entrepreneur',       ind:'Climate Tech/Energy' },
+      { id:'MBA292M-1',   name:'Social Impact Metrics',                                units:2, inst:'Boyle, C.',                          days:'T',       time:'4:00PM-6:00PM',  fmt:'15 Weeks',     dates:'8/25–12/8',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'BA',     fn:'Strategy / Planning',          ind:'Nonprofit' },
+      { id:'MBA292T-1',   name:'Systems Change for a Small Planet',                    units:3, inst:'Madsen, K., Rosenzweig, W.',         days:'T',       time:'2:00PM-5:00PM',  fmt:'15 weeks',     dates:'8/25–12/8',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'SB',     fn:'Strategy / Planning',          ind:'Climate Tech/Energy' },
+      { id:'MBA292T-12F', name:'Responsible Management in Crisis',                     units:2, inst:'Chan, A.',                           days:'W',       time:'6:00PM-8:00PM',  fmt:'10 weeks',     dates:'8/26–10/28',        xlist:'EWMBA', notes:'Online',              exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'',                            ind:'' },
+      { id:'MBA292T-13',  name:'Impact Investing Landscape',                           units:1, inst:'Butler, R., Lai, J.',               days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'9/20 & 10/18',      xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'SB',     fn:'Venture Capital / PE',         ind:'Climate Tech/Energy' },
+      { id:'MBA292T-2',   name:'Climate Change and Business Strategy',                 units:3, inst:'Romero-Hernandez, O.',               days:'M',       time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'8/24–12/14',        xlist:'EWMBA', notes:'',                    exp:false, bt:true,  noDrop:false, cert:'SB',     fn:'Strategy / Planning',          ind:'Climate Tech/Energy' },
+      { id:'MBA292T-4',   name:'Plant Futures Challenge Lab',                          units:3, inst:'Sartor, B., Schinner, M.',           days:'MW',      time:'4:30PM-6:00PM',  fmt:'15 weeks',     dates:'8/24–12/9',         xlist:'UGBA',  notes:'Cross-listed w/ undergrad', exp:true, bt:false, noDrop:false, cert:'SB', fn:'Venture Capital / PE',         ind:'Climate Tech/Energy' },
+      { id:'MBA292T-5',   name:'Business Models for Social Impact',                    units:3, inst:'Groos Richmond, K., Lee, G.',        days:'W',       time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'8/26–12/9',         xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'SB',     fn:'Strategy / Planning',          ind:'Startup/Entrepreneurship' },
+      { id:'MBA292T-6',   name:'Difficult Conversations: Conflict Lab',                units:2, inst:'LeBaron, F.',                        days:'Th',      time:'2:00PM-5:00PM',  fmt:'10 Weeks',     dates:'8/27–10/29',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Human Resources',              ind:'Technology' },
+      { id:'MBA292T-7',   name:'Climate Solutions Fund',                               units:3, inst:'Evans, T.',                          days:'MW',      time:'4:00PM-6:00PM',  fmt:'15 weeks',     dates:'8/24–11/18',        xlist:'EWMBA', notes:'Unique schedule',     exp:true,  bt:false, noDrop:false, cert:'SB',     fn:'Venture Capital / PE',         ind:'Climate Tech/Energy' },
+      { id:'MBA292T-8',   name:'The Business of Energy Transition',                    units:2, inst:'Gordon, Kate',                       days:'Th',      time:'4:00PM-6:00PM',  fmt:'15 weeks',     dates:'8/26–12/10',        xlist:'',      notes:'New course!',         exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'',                            ind:'' },
+      { id:'MBA292T-9',   name:'Large-Scale Social Change: Social Movements',          units:2, inst:'Nagai-Ma, S.',                       days:'T',       time:'2:00PM-4:00PM',  fmt:'15 Weeks',     dates:'8/25–12/8',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Strategy / Planning',          ind:'Climate Tech/Energy' },
+      { id:'MBA295A-1F',  name:'Entrepreneurship',                                     units:3, inst:'Beyer, K., Somasundaram, S.',         days:'Th',      time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'8/27–12/10',        xlist:'EWMBA', notes:'Online',              exp:true,  bt:true,  noDrop:false, cert:'AI',     fn:'Founder / Entrepreneur',       ind:'Startup/Entrepreneurship' },
+      { id:'MBA295B-1',   name:'Venture Capital & Private Equity',                     units:3, inst:'Foote, C., Maltz, J.',               days:'W',       time:'6:00PM-9:30PM',  fmt:'15 weeks',     dates:'8/26–12/9',         xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Venture Capital / PE',         ind:'Venture Capital' },
+      { id:'MBA295C-1F',  name:'Opportunity Recognition: Tech & Entrepreneurship',     units:2, inst:'Metzler, J.',                        days:'M',       time:'4:00PM-6:00PM',  fmt:'15 weeks',     dates:'8/24–12/7',         xlist:'EWMBA', notes:'Online',              exp:false, bt:true,  noDrop:false, cert:'AI',     fn:'Founder / Entrepreneur',       ind:'Startup/Entrepreneurship' },
+      { id:'MBA295T-1',   name:'Bay Area Innovation and Entrepreneurship',             units:2, inst:'Charron, D., Foote, C.',             days:'MTWThF',  time:'9:00AM-5:00PM',  fmt:'Block Week',   dates:'10/19–10/23',       xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Founder / Entrepreneur',       ind:'Startup/Entrepreneurship' },
+      { id:'MBA295T-11',  name:'Startup Disco',                                        units:1, inst:'Shrader, R.',                        days:'FSSu',    time:'4:30PM-9:00PM',  fmt:'Full weekend', dates:'9/11–9/13',          xlist:'EWMBA', notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Founder / Entrepreneur',       ind:'Startup/Entrepreneurship' },
+      { id:'MBA295T-2',   name:'Lean Transfer',                                        units:2, inst:'Ruparel, A., Shrader, R.',           days:'Th',      time:'4:00PM-6:00PM',  fmt:'15 Weeks',     dates:'8/27–12/10',        xlist:'',      notes:'',                    exp:true,  bt:false, noDrop:false, cert:'N/A',    fn:'Founder / Entrepreneur',       ind:'Startup/Entrepreneurship' },
+      { id:'MBA295T-3',   name:'Startup Sales',                                        units:2, inst:'Wadcan, J.',                         days:'W',       time:'2:00PM-4:00PM',  fmt:'15 Weeks',     dates:'8/26–12/9',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Business Dev / Sales',         ind:'Startup/Entrepreneurship' },
+      { id:'MBA296-11',   name:'Life Sciences Marketing',                              units:1, inst:'Ford, J.',                           days:'Su',      time:'9:00AM-5:00PM',  fmt:'2 Sundays',    dates:'9/13 & 9/27',       xlist:'EWMBA', notes:'',                    exp:false, bt:true,  noDrop:false, cert:'N/A',    fn:'Product Management',           ind:'Healthcare/Biotech' },
+      { id:'MBA296-1F',   name:'Strategically Managing Healthcare Policy',             units:2, inst:'Macpherson, K.',                     days:'MTWThF',  time:'7:00AM-2:00PM',  fmt:'Block Week',   dates:'11/8, 11/16–20, 12/6', xlist:'EWMBA', notes:'Online',           exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Strategy / Planning',          ind:'Healthcare/Biotech' },
+      { id:'MBA296-3',    name:'Human-Centered AI-Powered Presentations',              units:1, inst:'Charnsupharindr, D.',                days:'M',       time:'2:00PM-4:00PM',  fmt:'7 Weeks',      dates:'10/19–12/7',        xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Human Resources',              ind:'Technology' },
+      { id:'MBA296-4',    name:'Data Analytics',                                       units:2, inst:'Miller, C.',                         days:'T',       time:'2:00PM-5:00PM',  fmt:'10 weeks',     dates:'8/25–11/3',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'AI, BA', fn:'',                            ind:'' },
+      { id:'MBA296-5',    name:"The Business of Women's Sports",                       units:2, inst:'McElhaney, K.',                      days:'M',       time:'4:00PM-6:00PM',  fmt:'15 Weeks',     dates:'8/24–12/7',         xlist:'',      notes:'New course!',         exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'',                            ind:'' },
+      { id:'MBA296C-1',   name:'Introduction to Coding for MBAs',                      units:2, inst:'Wadcan, J.',                         days:'W',       time:'4:00PM-6:00PM',  fmt:'15 Weeks',     dates:'8/26–12/9',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'AI',     fn:'Data Scientist / Analyst',     ind:'Technology' },
+      { id:'MBA297A-1',   name:'Healthcare in the 21st Century',                       units:3, inst:'Macpherson, K.',                     days:'MW',      time:'11:00AM-12:30PM', fmt:'15 weeks',    dates:'8/24–12/9',         xlist:'',      notes:'',                    exp:false, bt:true,  noDrop:false, cert:'N/A',    fn:'Strategy / Planning',          ind:'Healthcare/Biotech' },
+      { id:'MBA299M-1',   name:'Marketing Strategy',                                   units:3, inst:'Villas-Boas, J. M.',                 days:'MW',      time:'11:00AM-12:30PM', fmt:'15 weeks',    dates:'8/24–12/9',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Marketing & Brand Management', ind:'Technology' },
+    ];
+
+    // ── APP ──────────────────────────────────────────────────────────────────────
+    function App() {
+      const [selected, setSelected] = useState(new Set());
+      const [search, setSearch]     = useState('');
+      const [fDay, setFDay]         = useState('');
+      const [fCert, setFCert]       = useState('');
+      const [fExp, setFExp]         = useState(false);
+      const [fBT, setFBT]           = useState(false);
+      const [fFmt, setFFmt]         = useState('');
+      const [hovered, setHovered]   = useState(null);
+
+      const toggle = id => setSelected(prev => {
+        const n = new Set(prev);
+        n.has(id) ? n.delete(id) : n.add(id);
+        return n;
+      });
+
+      const selCourses = useMemo(() => COURSES.filter(c => selected.has(c.id)), [selected]);
+      const totalUnits = useMemo(() => selCourses.reduce((s,c) => s + c.units, 0), [selCourses]);
+
+      const conflicts = useMemo(() => {
+        const set = new Set();
+        const list = selCourses.filter(c => c.time && c.days);
+        for (let i = 0; i < list.length; i++) {
+          for (let j = i+1; j < list.length; j++) {
+            const a = list[i], b = list[j];
+            const shared = parseDays(a.days).filter(d => parseDays(b.days).includes(d));
+            if (!shared.length) continue;
+            const at = parseRange(a.time), bt = parseRange(b.time);
+            if (!at || !bt) continue;
+            if (at.start < bt.end && bt.start < at.end) { set.add(a.id); set.add(b.id); }
+          }
+        }
+        return set;
+      }, [selCourses]);
+
+      const visible = useMemo(() => COURSES.filter(c => {
+        if (search) {
+          const q = search.toLowerCase();
+          if (!c.name.toLowerCase().includes(q) && !c.id.toLowerCase().includes(q) && !c.inst.toLowerCase().includes(q)) return false;
+        }
+        if (fDay) {
+          const dmap = { M:0,T:1,W:2,Th:3,F:4,S:5,Su:6 };
+          if (!parseDays(c.days).includes(dmap[fDay])) return false;
+        }
+        if (fCert && !c.cert.includes(fCert)) return false;
+        if (fExp && !c.exp) return false;
+        if (fBT && !c.bt) return false;
+        if (fFmt && c.fmt !== fFmt) return false;
+        return true;
+      }), [search, fDay, fCert, fExp, fBT, fFmt]);
+
+      return (
+        <div style={{ display:'flex', flexDirection:'column', height:'100vh' }}>
+          {/* ── HEADER ── */}
+          <div style={{ background:'#003262', color:'white', padding:'10px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }}>
+            <div>
+              <div style={{ fontSize:'17px', fontWeight:800, letterSpacing:'-0.3px' }}>Haas MBA Course Scheduler</div>
+              <div style={{ fontSize:'11px', opacity:0.6, marginTop:'1px' }}>Fall 2025 Electives · {COURSES.length} courses available</div>
+            </div>
+            <div style={{ display:'flex', gap:'12px', alignItems:'center' }}>
+              {conflicts.size > 0 && (
+                <div style={{ background:'#FEF3C7', color:'#92400E', padding:'5px 10px', borderRadius:'6px', fontSize:'12px', fontWeight:700 }}>
+                  ⚠ {conflicts.size} conflict{conflicts.size !== 1 ? 's' : ''}
+                </div>
+              )}
+              <div style={{ background:'#FDB515', color:'#003262', padding:'6px 16px', borderRadius:'8px', fontWeight:800, fontSize:'15px' }}>
+                {totalUnits} units
+              </div>
+              {selCourses.length > 0 && (
+                <button onClick={() => setSelected(new Set())} style={{ background:'rgba(255,255,255,0.15)', color:'white', border:'1px solid rgba(255,255,255,0.3)', padding:'5px 12px', borderRadius:'6px', cursor:'pointer', fontSize:'12px' }}>
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* ── BODY ── */}
+          <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+            {/* ── SIDEBAR ── */}
+            <div style={{ width:'310px', background:'white', borderRight:'1px solid #E2E8F0', display:'flex', flexDirection:'column', overflow:'hidden', flexShrink:0 }}>
+              {/* Search */}
+              <div style={{ padding:'10px 12px', borderBottom:'1px solid #E2E8F0' }}>
+                <input type="text" placeholder="🔍  Search name, ID, instructor…" value={search} onChange={e => setSearch(e.target.value)}
+                  style={{ width:'100%', padding:'8px 10px', border:'1px solid #CBD5E1', borderRadius:'6px', fontSize:'13px', outline:'none' }} />
+              </div>
+              {/* Filters */}
+              <div style={{ padding:'8px 12px', borderBottom:'1px solid #E2E8F0', display:'flex', flexWrap:'wrap', gap:'6px' }}>
+                <select value={fDay} onChange={e => setFDay(e.target.value)} style={selStyle}>
+                  <option value="">All Days</option>
+                  <option value="M">Monday</option><option value="T">Tuesday</option>
+                  <option value="W">Wednesday</option><option value="Th">Thursday</option>
+                  <option value="F">Friday</option><option value="S">Saturday</option>
+                  <option value="Su">Sunday</option>
+                </select>
+                <select value={fCert} onChange={e => setFCert(e.target.value)} style={selStyle}>
+                  <option value="">All Certs</option>
+                  <option value="SB">Sustainable Business</option>
+                  <option value="AI">AI & Analytics</option>
+                  <option value="BA">Business Analytics</option>
+                  <option value="RE">Real Estate</option>
+                </select>
+                <select value={fFmt} onChange={e => setFFmt(e.target.value)} style={selStyle}>
+                  <option value="">All Formats</option>
+                  <option value="15 weeks">15 Weeks</option>
+                  <option value="10 Weeks">10 Weeks</option>
+                  <option value="7 Weeks">7 Weeks</option>
+                  <option value="Block Week">Block Week</option>
+                  <option value="2 Sundays">2 Sundays</option>
+                  <option value="Saturdays">Saturdays</option>
+                  <option value="Full weekend">Full Weekend</option>
+                </select>
+                <label style={{ display:'flex', alignItems:'center', gap:'4px', fontSize:'12px', cursor:'pointer', whiteSpace:'nowrap' }}>
+                  <input type="checkbox" checked={fExp} onChange={e => setFExp(e.target.checked)} /> Experiential
+                </label>
+                <label style={{ display:'flex', alignItems:'center', gap:'4px', fontSize:'12px', cursor:'pointer', whiteSpace:'nowrap' }}>
+                  <input type="checkbox" checked={fBT} onChange={e => setFBT(e.target.checked)} /> Biz &amp; Tech
+                </label>
+              </div>
+              {/* Count */}
+              <div style={{ padding:'5px 12px', fontSize:'11px', color:'#64748B', background:'#F8FAFC', borderBottom:'1px solid #E2E8F0' }}>
+                {visible.length} shown · <strong>{selected.size}</strong> selected
+              </div>
+              {/* Legend */}
+              <div style={{ padding:'6px 12px', display:'flex', flexWrap:'wrap', gap:'4px', borderBottom:'1px solid #E2E8F0' }}>
+                {Object.entries(COLORS).map(([k,c]) => (
+                  <div key={k} style={{ fontSize:'10px', padding:'2px 6px', borderRadius:'3px', background:c.bg, color:c.t, border:`1px solid ${c.b}` }}>{c.label}</div>
+                ))}
+              </div>
+              {/* Course list */}
+              <div style={{ flex:1, overflowY:'auto' }}>
+                {visible.map(c => <CourseCard key={c.id} course={c} selected={selected.has(c.id)} conflict={conflicts.has(c.id)} hovered={hovered===c.id} onToggle={() => toggle(c.id)} onHover={setHovered} />)}
+              </div>
+            </div>
+
+            {/* ── MAIN ── */}
+            <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+              <ScheduleGrid courses={selCourses} conflicts={conflicts} hovered={hovered} onRemove={toggle} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const selStyle = { fontSize:'12px', padding:'4px 6px', border:'1px solid #CBD5E1', borderRadius:'4px', background:'white', cursor:'pointer' };
+
+    // ── COURSE CARD ───────────────────────────────────────────────────────────────
+    function CourseCard({ course: c, selected, conflict, hovered, onToggle, onHover }) {
+      const col = COLORS[getArea(c.id)];
+      return (
+        <div onClick={onToggle} onMouseEnter={() => onHover(c.id)} onMouseLeave={() => onHover(null)}
+          style={{ padding:'9px 12px', borderBottom:'1px solid #F1F5F9', cursor:'pointer', transition:'background 0.1s',
+            background: selected ? col.bg : hovered ? '#F8FAFC' : 'white',
+            borderLeft: `3px solid ${selected ? col.b : 'transparent'}` }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'8px' }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:'5px', marginBottom:'3px', flexWrap:'wrap' }}>
+                <span style={{ fontSize:'10px', fontWeight:700, color:col.t, background:col.bg, padding:'1px 5px', borderRadius:'3px', border:`1px solid ${col.b}`, whiteSpace:'nowrap' }}>{c.id}</span>
+                <span style={{ fontSize:'11px', color:'#64748B', whiteSpace:'nowrap' }}>{c.units}u</span>
+                {conflict && <span style={{ fontSize:'10px', color:'#DC2626', fontWeight:600 }}>⚠ conflict</span>}
+                {c.notes && c.notes.includes('New') && <span style={{ fontSize:'10px', color:'#16A34A', background:'#DCFCE7', padding:'1px 4px', borderRadius:'3px', border:'1px solid #86EFAC' }}>NEW</span>}
+              </div>
+              <div style={{ fontSize:'13px', fontWeight:600, color:'#1E293B', lineHeight:1.3, marginBottom:'2px' }}>{c.name}</div>
+              <div style={{ fontSize:'11px', color:'#64748B' }}>{c.inst}</div>
+              <div style={{ fontSize:'11px', color:'#94A3B8', marginTop:'2px', display:'flex', gap:'8px', flexWrap:'wrap' }}>
+                <span><b>{c.days}</b> · {c.time}</span>
+                <span>{c.fmt}</span>
+              </div>
+              <div style={{ display:'flex', gap:'5px', marginTop:'3px', flexWrap:'wrap' }}>
+                {c.cert && c.cert !== 'N/A' && c.cert !== '' && c.cert.split(',').map(ct => (
+                  <span key={ct} style={{ fontSize:'10px', color:'#7C3AED', background:'#F3E8FF', padding:'1px 5px', borderRadius:'3px', border:'1px solid #C4B5FD' }}>📜 {ct.trim()}</span>
+                ))}
+                {c.exp && <span style={{ fontSize:'10px', color:'#059669', background:'#DCFCE7', padding:'1px 5px', borderRadius:'3px', border:'1px solid #6EE7B7' }}>⭐ Exp</span>}
+                {c.bt && <span style={{ fontSize:'10px', color:'#2563EB', background:'#DBEAFE', padding:'1px 5px', borderRadius:'3px', border:'1px solid #93C5FD' }}>💻 B&T</span>}
+                {c.xlist && c.xlist !== 'No' && <span style={{ fontSize:'10px', color:'#64748B', background:'#F1F5F9', padding:'1px 5px', borderRadius:'3px' }}>{c.xlist}</span>}
+              </div>
+            </div>
+            <div style={{ width:'20px', height:'20px', borderRadius:'50%', border:`2px solid ${selected ? col.b : '#CBD5E1'}`, background: selected ? col.b : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:'2px' }}>
+              {selected && <span style={{ color:'white', fontSize:'11px', lineHeight:1, fontWeight:700 }}>✓</span>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── SCHEDULE GRID ─────────────────────────────────────────────────────────────
+    function ScheduleGrid({ courses, conflicts, hovered, onRemove }) {
+      const timeLabels = [];
+      for (let m = GRID_START; m <= GRID_END; m += 60) timeLabels.push(m);
+
+      const gridLines = [];
+      for (let i = 0; i <= TOTAL_SLOTS; i++) gridLines.push({ y: i * SLOT_H, isHour: i % 2 === 0 });
+
+      // Build blocks: one per (course × day)
+      const blocks = [];
+      courses.forEach(c => {
+        if (!c.time || !c.days) return;
+        const tr = parseRange(c.time); if (!tr) return;
+        parseDays(c.days).forEach(di => blocks.push({ c, di, tr, col: COLORS[getArea(c.id)] }));
+      });
+
+      const emptyMsg = courses.length === 0;
+
+      return (
+        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+          {/* Day headers */}
+          <div style={{ display:'flex', borderBottom:'2px solid #E2E8F0', background:'white', flexShrink:0 }}>
+            <div style={{ width:'52px', flexShrink:0 }} />
+            {DAYS.map((d, i) => (
+              <div key={d} style={{ flex: i < 5 ? 1.2 : 0.7, textAlign:'center', padding:'8px 4px', fontSize:'12px', fontWeight:700, color:'#475569', letterSpacing:'0.05em', textTransform:'uppercase', borderLeft:'1px solid #E2E8F0' }}>{d}</div>
+            ))}
+          </div>
+
+          {/* Grid body */}
+          <div style={{ flex:1, overflowY:'auto', display:'flex', position:'relative' }}>
+            {emptyMsg && (
+              <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none', zIndex:5 }}>
+                <div style={{ textAlign:'center', color:'#94A3B8' }}>
+                  <div style={{ fontSize:'36px', marginBottom:'8px' }}>📅</div>
+                  <div style={{ fontSize:'15px', fontWeight:600 }}>Select courses from the left panel</div>
+                  <div style={{ fontSize:'13px', marginTop:'4px' }}>They'll appear on the weekly grid</div>
+                </div>
+              </div>
+            )}
+            {/* Time labels */}
+            <div style={{ width:'52px', position:'relative', height:`${GRID_H}px`, flexShrink:0 }}>
+              {timeLabels.map(m => (
+                <div key={m} style={{ position:'absolute', top:`${toY(m)}px`, right:'6px', fontSize:'10px', color:'#94A3B8', transform:'translateY(-50%)', whiteSpace:'nowrap' }}>{fmt(m)}</div>
+              ))}
+            </div>
+            {/* Day columns */}
+            {DAYS.map((d, di) => (
+              <div key={di} style={{ flex: di < 5 ? 1.2 : 0.7, position:'relative', height:`${GRID_H}px`, borderLeft:'1px solid #E2E8F0' }}>
+                {gridLines.map((l,i) => (
+                  <div key={i} style={{ position:'absolute', top:`${l.y}px`, left:0, right:0, borderTop: l.isHour ? '1px solid #E2E8F0' : '1px dashed #F1F5F9', pointerEvents:'none' }} />
+                ))}
+                {blocks.filter(b => b.di === di).map(b => {
+                  const top = toY(b.tr.start);
+                  const h   = Math.max(toH(b.tr.end - b.tr.start), SLOT_H * 0.8);
+                  const isC = conflicts.has(b.c.id);
+                  const isH = hovered === b.c.id;
+                  return (
+                    <div key={`${b.c.id}-${di}`} onClick={() => onRemove(b.c.id)}
+                      title={`${b.c.name}\n${b.c.days} ${b.c.time}\n${b.c.fmt} · ${b.c.dates}\nClick to remove`}
+                      style={{ position:'absolute', top:`${top+1}px`, left:'2px', right:'2px', height:`${h-2}px`,
+                        background: isC ? '#FEE2E2' : b.col.bg,
+                        borderLeft:`3px solid ${isC ? '#EF4444' : b.col.b}`,
+                        borderRadius:'4px', padding:'3px 5px', fontSize:'10px', lineHeight:1.25,
+                        overflow:'hidden', cursor:'pointer', zIndex: isH ? 10 : 1,
+                        boxShadow: isH ? '0 2px 12px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)',
+                        transition:'box-shadow 0.1s', opacity: isH ? 0.9 : 1 }}>
+                      <div style={{ fontWeight:700, color: isC ? '#B91C1C' : b.col.t, overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>{b.c.name}</div>
+                      {h > 32 && <div style={{ color:'#64748B', overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>{b.c.time}</div>}
+                      {h > 50 && <div style={{ color:'#94A3B8', overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>{b.c.inst}</div>}
+                      {isC && h > 18 && <div style={{ color:'#DC2626', fontSize:'9px', fontWeight:700 }}>⚠ CONFLICT</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          {/* Selected courses summary */}
+          {courses.length > 0 && (
+            <div style={{ background:'white', borderTop:'1px solid #E2E8F0', padding:'8px 16px', flexShrink:0, maxHeight:'120px', overflowY:'auto' }}>
+              <div style={{ fontSize:'11px', fontWeight:700, color:'#475569', marginBottom:'5px', textTransform:'uppercase', letterSpacing:'0.05em' }}>
+                Selected — {courses.reduce((s,c)=>s+c.units,0)} units total
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:'5px' }}>
+                {courses.map(c => {
+                  const col = COLORS[getArea(c.id)];
+                  return (
+                    <div key={c.id} onClick={() => onRemove(c.id)}
+                      title="Click to remove"
+                      style={{ display:'flex', alignItems:'center', gap:'5px', padding:'3px 8px', borderRadius:'20px', background:col.bg, border:`1px solid ${col.b}`, cursor:'pointer', fontSize:'11px' }}>
+                      <span style={{ fontWeight:700, color:col.t }}>{c.id}</span>
+                      <span style={{ color:'#64748B' }}>{c.units}u</span>
+                      {conflicts.has(c.id) && <span style={{ color:'#DC2626' }}>⚠</span>}
+                      <span style={{ color:'#94A3B8', fontSize:'10px' }}>×</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
