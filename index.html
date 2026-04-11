@@ -185,9 +185,11 @@
       const [fExp, setFExp]               = useState(false);
       const [fBT, setFBT]                 = useState(false);
       const [fFmt, setFFmt]               = useState('');
+      const [fPriority, setFPriority]     = useState('');
       const [hovered, setHovered]         = useState(null);
       const [customCourses, setCustomCourses] = useState([]);
       const [showAddModal, setShowAddModal]   = useState(false);
+      const [priorities, setPriorities]       = useState({});  // { courseId: 'P1'|'P2'|'P3' }
 
       const allCourses = useMemo(() => [...COURSES, ...customCourses], [customCourses]);
 
@@ -229,8 +231,15 @@
         if (fExp && !c.exp) return false;
         if (fBT && !c.bt) return false;
         if (fFmt && c.fmt !== fFmt) return false;
+        if (fPriority && priorities[c.id] !== fPriority) return false;
         return true;
-      }), [allCourses, search, fDay, fCert, fExp, fBT, fFmt]);
+      }), [allCourses, search, fDay, fCert, fExp, fBT, fFmt, fPriority, priorities]);
+
+      const setPriority = (id, p) => setPriorities(prev => {
+        const n = { ...prev };
+        if (n[id] === p) delete n[id]; else n[id] = p;
+        return n;
+      });
 
       const addCourse = (course) => {
         setCustomCourses(prev => [...prev, course]);
@@ -315,9 +324,24 @@
                   <div key={k} style={{ fontSize:'10px', padding:'2px 6px', borderRadius:'3px', background:c.bg, color:c.t, border:`1px solid ${c.b}` }}>{c.label}</div>
                 ))}
               </div>
+              {/* Priority filter */}
+              <div style={{ padding:'6px 12px', borderBottom:'1px solid #E2E8F0', display:'flex', gap:'6px', alignItems:'center' }}>
+                <span style={{ fontSize:'11px', color:'#64748B', fontWeight:600 }}>Priority:</span>
+                {['P1','P2','P3'].map(p => {
+                  const pcol = { P1:{ bg:'#FEE2E2', t:'#B91C1C', b:'#FCA5A5' }, P2:{ bg:'#FEF3C7', t:'#92400E', b:'#FCD34D' }, P3:{ bg:'#DBEAFE', t:'#1D4ED8', b:'#93C5FD' } }[p];
+                  const active = fPriority === p;
+                  return (
+                    <button key={p} onClick={() => setFPriority(active ? '' : p)}
+                      style={{ padding:'3px 10px', borderRadius:'12px', border:`1.5px solid ${active ? pcol.b : '#E2E8F0'}`, background: active ? pcol.bg : 'white', color: active ? pcol.t : '#94A3B8', fontSize:'12px', fontWeight:700, cursor:'pointer' }}>
+                      {p}
+                    </button>
+                  );
+                })}
+                {fPriority && <button onClick={() => setFPriority('')} style={{ fontSize:'11px', color:'#94A3B8', background:'none', border:'none', cursor:'pointer' }}>clear</button>}
+              </div>
               {/* Course list */}
               <div style={{ flex:1, overflowY:'auto' }}>
-                {visible.map(c => <CourseCard key={c.id} course={c} selected={selected.has(c.id)} conflict={conflicts.has(c.id)} hovered={hovered===c.id} onToggle={() => toggle(c.id)} onHover={setHovered} />)}
+                {visible.map(c => <CourseCard key={c.id} course={c} selected={selected.has(c.id)} conflict={conflicts.has(c.id)} hovered={hovered===c.id} priority={priorities[c.id]} onToggle={() => toggle(c.id)} onHover={setHovered} onPriority={setPriority} />)}
               </div>
               {/* Add new class button */}
               <div style={{ padding:'10px 12px', borderTop:'1px solid #E2E8F0', flexShrink:0 }}>
@@ -330,7 +354,7 @@
 
             {/* ── MAIN ── */}
             <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-              <ScheduleGrid courses={selCourses} conflicts={conflicts} hovered={hovered} onRemove={toggle} />
+              <ScheduleGrid courses={selCourses} conflicts={conflicts} hovered={hovered} onRemove={toggle} priorities={priorities} />
             </div>
           </div>
 
@@ -342,16 +366,23 @@
 
     const selStyle = { fontSize:'12px', padding:'4px 6px', border:'1px solid #CBD5E1', borderRadius:'4px', background:'white', cursor:'pointer' };
 
+    // ── PRIORITY CONFIG ───────────────────────────────────────────────────────────
+    const PCOLS = {
+      P1: { bg:'#FEE2E2', t:'#B91C1C', b:'#FCA5A5', label:'P1' },
+      P2: { bg:'#FEF3C7', t:'#92400E', b:'#FCD34D', label:'P2' },
+      P3: { bg:'#DBEAFE', t:'#1D4ED8', b:'#93C5FD', label:'P3' },
+    };
+
     // ── COURSE CARD ───────────────────────────────────────────────────────────────
-    function CourseCard({ course: c, selected, conflict, hovered, onToggle, onHover }) {
+    function CourseCard({ course: c, selected, conflict, hovered, priority, onToggle, onHover, onPriority }) {
       const col = COLORS[getArea(c.id)];
       return (
-        <div onClick={onToggle} onMouseEnter={() => onHover(c.id)} onMouseLeave={() => onHover(null)}
-          style={{ padding:'9px 12px', borderBottom:'1px solid #F1F5F9', cursor:'pointer', transition:'background 0.1s',
+        <div onMouseEnter={() => onHover(c.id)} onMouseLeave={() => onHover(null)}
+          style={{ padding:'9px 12px', borderBottom:'1px solid #F1F5F9', transition:'background 0.1s',
             background: selected ? col.bg : hovered ? '#F8FAFC' : 'white',
             borderLeft: `3px solid ${selected ? col.b : 'transparent'}` }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'8px' }}>
-            <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ flex:1, minWidth:0, cursor:'pointer' }} onClick={onToggle}>
               <div style={{ display:'flex', alignItems:'center', gap:'5px', marginBottom:'3px', flexWrap:'wrap' }}>
                 <span style={{ fontSize:'10px', fontWeight:700, color:col.t, background:col.bg, padding:'1px 5px', borderRadius:'3px', border:`1px solid ${col.b}`, whiteSpace:'nowrap' }}>{c.id}</span>
                 <span style={{ fontSize:'11px', color:'#64748B', whiteSpace:'nowrap' }}>{c.units}u</span>
@@ -373,8 +404,24 @@
                 {c.xlist && c.xlist !== 'No' && <span style={{ fontSize:'10px', color:'#64748B', background:'#F1F5F9', padding:'1px 5px', borderRadius:'3px' }}>{c.xlist}</span>}
               </div>
             </div>
-            <div style={{ width:'20px', height:'20px', borderRadius:'50%', border:`2px solid ${selected ? col.b : '#CBD5E1'}`, background: selected ? col.b : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:'2px' }}>
-              {selected && <span style={{ color:'white', fontSize:'11px', lineHeight:1, fontWeight:700 }}>✓</span>}
+            {/* Right column: select circle + priority buttons */}
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'6px', flexShrink:0 }}>
+              <div onClick={onToggle} style={{ width:'20px', height:'20px', borderRadius:'50%', border:`2px solid ${selected ? col.b : '#CBD5E1'}`, background: selected ? col.b : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', marginTop:'2px' }}>
+                {selected && <span style={{ color:'white', fontSize:'11px', lineHeight:1, fontWeight:700 }}>✓</span>}
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:'3px' }}>
+                {['P1','P2','P3'].map(p => {
+                  const pc = PCOLS[p];
+                  const active = priority === p;
+                  return (
+                    <button key={p} onClick={e => { e.stopPropagation(); onPriority(c.id, p); }}
+                      title={`Mark as ${p}`}
+                      style={{ width:'24px', height:'18px', borderRadius:'4px', border:`1.5px solid ${active ? pc.b : '#E2E8F0'}`, background: active ? pc.bg : 'white', color: active ? pc.t : '#CBD5E1', fontSize:'9px', fontWeight:800, cursor:'pointer', padding:0, lineHeight:1 }}>
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -382,7 +429,7 @@
     }
 
     // ── SCHEDULE GRID ─────────────────────────────────────────────────────────────
-    function ScheduleGrid({ courses, conflicts, hovered, onRemove }) {
+    function ScheduleGrid({ courses, conflicts, hovered, onRemove, priorities }) {
       const timeLabels = [];
       for (let m = GRID_START; m <= GRID_END; m += 60) timeLabels.push(m);
 
@@ -447,7 +494,10 @@
                         overflow:'hidden', cursor:'pointer', zIndex: isH ? 10 : 1,
                         boxShadow: isH ? '0 2px 12px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)',
                         transition:'box-shadow 0.1s', opacity: isH ? 0.9 : 1 }}>
-                      <div style={{ fontWeight:700, color: isC ? '#B91C1C' : b.col.t, overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>{b.c.name}</div>
+                      <div style={{ display:'flex', alignItems:'center', gap:'3px', overflow:'hidden' }}>
+                        {priorities && priorities[b.c.id] && (() => { const pc = PCOLS[priorities[b.c.id]]; return <span style={{ fontSize:'8px', fontWeight:800, color:pc.t, background:pc.bg, border:`1px solid ${pc.b}`, borderRadius:'2px', padding:'0 3px', flexShrink:0 }}>{priorities[b.c.id]}</span>; })()}
+                        <div style={{ fontWeight:700, color: isC ? '#B91C1C' : b.col.t, overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>{b.c.name}</div>
+                      </div>
                       {h > 32 && <div style={{ color:'#64748B', overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>{b.c.time}</div>}
                       {h > 50 && <div style={{ color:'#94A3B8', overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>{b.c.inst}</div>}
                       {isC && h > 18 && <div style={{ color:'#DC2626', fontSize:'9px', fontWeight:700 }}>⚠ CONFLICT</div>}
@@ -467,10 +517,13 @@
               <div style={{ display:'flex', flexWrap:'wrap', gap:'5px' }}>
                 {courses.map(c => {
                   const col = COLORS[getArea(c.id)];
+                  const p = priorities && priorities[c.id];
+                  const pc = p && PCOLS[p];
                   return (
                     <div key={c.id} onClick={() => onRemove(c.id)}
                       title="Click to remove"
                       style={{ display:'flex', alignItems:'center', gap:'5px', padding:'3px 8px', borderRadius:'20px', background:col.bg, border:`1px solid ${col.b}`, cursor:'pointer', fontSize:'11px' }}>
+                      {p && <span style={{ fontWeight:800, color:pc.t, background:pc.bg, border:`1px solid ${pc.b}`, borderRadius:'3px', padding:'0 4px', fontSize:'10px' }}>{p}</span>}
                       <span style={{ fontWeight:700, color:col.t }}>{c.id}</span>
                       <span style={{ color:'#64748B' }}>{c.units}u</span>
                       {conflicts.has(c.id) && <span style={{ color:'#DC2626' }}>⚠</span>}
