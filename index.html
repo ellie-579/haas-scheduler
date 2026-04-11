@@ -489,7 +489,7 @@
                   <RatingBar label="Diff" value={rev.difficulty} color="#F97316" />
                   <button onClick={e => { e.stopPropagation(); onReview(); }}
                     style={{ fontSize:'10px', color:'#6366F1', background:'#EEF2FF', border:'1px solid #C7D2FE', borderRadius:'4px', padding:'1px 6px', cursor:'pointer', marginLeft:'2px' }}>
-                    💬 {rev.responses} reviews
+                    💬 {rev.comments && rev.comments.length > 0 ? `${rev.responses || rev.comments.length} comments` : 'scores'}
                   </button>
                 </div>
               )}
@@ -689,11 +689,17 @@
               <div style={{ fontSize:'12px', fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'10px' }}>
                 Student Comments — Would you recommend this course?
               </div>
-              {rev.comments.map((comment, i) => (
+              {rev.comments && rev.comments.length > 0 ? rev.comments.map((comment, i) => (
                 <div key={i} style={{ padding:'10px 12px', marginBottom:'8px', background:'#F8FAFC', borderRadius:'8px', borderLeft:'3px solid #E2E8F0', fontSize:'13px', color:'#374151', lineHeight:1.5 }}>
                   "{comment}"
                 </div>
-              ))}
+              )) : (
+                <div style={{ padding:'16px', textAlign:'center', color:'#94A3B8', background:'#F8FAFC', borderRadius:'8px' }}>
+                  <div style={{ fontSize:'24px', marginBottom:'8px' }}>💬</div>
+                  <div style={{ fontSize:'13px', fontWeight:600 }}>No comments loaded yet</div>
+                  <div style={{ fontSize:'12px', marginTop:'4px' }}>On the Teaching Evaluations site, click <b>view</b> under Qualitative Comments for this course, then save the PDF and share it here.</div>
+                </div>
+              )}
             </div>
           </div>
         </div>
