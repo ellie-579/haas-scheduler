@@ -105,6 +105,25 @@
       return `${h > 12 ? h-12 : h===0?12:h}:${mn.toString().padStart(2,'0')} ${p}`;
     }
 
+    // ── SEMESTER DATE UTILS ──────────────────────────────────────────────────────
+    const SEM_START   = new Date(2025, 7, 18);  // Mon Aug 18, 2025
+    const SEM_END     = new Date(2025, 11, 14); // Sun Dec 14, 2025
+    const SEM_DAYS    = Math.round((SEM_END - SEM_START) / 86400000); // ~118
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    function parseDateRange(s) {
+      if (!s) return null;
+      const matches = [...s.matchAll(/(\d{1,2})\/(\d{1,2})/g)];
+      if (!matches.length) return null;
+      const dates = matches.map(m => new Date(2025, +m[1]-1, +m[2]));
+      // Handle shorthand like "11/6–7" (same month, different end day)
+      const sr = s.match(/(\d{1,2})\/\d{1,2}[–\-](\d{1,2})(?!\d)/);
+      if (sr) dates.push(new Date(2025, +sr[1]-1, +sr[2]));
+      return { start: new Date(Math.min(...dates)), end: new Date(Math.max(...dates)) };
+    }
+    function fmtD(d) { return MONTH_NAMES[d.getMonth()] + ' ' + d.getDate(); }
+    function semOff(d) { return Math.max(0, Math.min(SEM_DAYS, Math.round((d - SEM_START) / 86400000))); }
+
     // ── COURSE DATA ──────────────────────────────────────────────────────────────
     const COURSES = [
       { id:'MBA212A-1',   name:'Cleantech to Market',                                 units:3, inst:'Luce, A., Martinez, A., Steel, B.', days:'W',       time:'2:00PM-5:00PM',  fmt:'15 weeks',     dates:'8/26–12/9',         xlist:'EWMBA', notes:'',                    exp:true,  bt:true,  noDrop:true,  cert:'SB',     fn:'Venture Capital / PE',         ind:'Climate Tech/Energy' },
@@ -265,6 +284,7 @@
       const [showAddModal, setShowAddModal]   = useState(false);
       const [priorities, setPriorities]       = useState({});  // { courseId: 'P1'|'P2'|'P3' }
       const [reviewCourse, setReviewCourse]   = useState(null); // courseId to show reviews for
+      const [view, setView]                   = useState('weekly'); // 'weekly' | 'timeline'
 
       const allCourses = useMemo(() => [...COURSES, ...customCourses], [customCourses]);
 
@@ -429,7 +449,19 @@
 
             {/* ── MAIN ── */}
             <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-              <ScheduleGrid courses={selCourses} conflicts={conflicts} hovered={hovered} onRemove={toggle} priorities={priorities} />
+              {/* View tabs */}
+              <div style={{ display:'flex', background:'white', borderBottom:'2px solid #E2E8F0', flexShrink:0 }}>
+                {[['weekly','📅 Weekly Schedule'],['timeline','📊 Semester Timeline']].map(([v,lbl]) => (
+                  <button key={v} onClick={() => setView(v)}
+                    style={{ padding:'8px 20px', fontSize:'13px', fontWeight:700, border:'none', borderBottom: v===view ? '2px solid #003262' : '2px solid transparent', cursor:'pointer', background:'white', color: v===view ? '#003262' : '#64748B', marginBottom:'-2px' }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {view === 'weekly'
+                ? <ScheduleGrid courses={selCourses} conflicts={conflicts} hovered={hovered} onRemove={toggle} priorities={priorities} />
+                : <SemesterTimeline courses={selCourses} conflicts={conflicts} priorities={priorities} />
+              }
             </div>
           </div>
 
@@ -471,7 +503,7 @@
               <div style={{ fontSize:'11px', color:'#64748B' }}>{c.inst}</div>
               <div style={{ fontSize:'11px', color:'#94A3B8', marginTop:'2px', display:'flex', gap:'8px', flexWrap:'wrap' }}>
                 <span><b>{c.days}</b> · {c.time}</span>
-                <span>{c.fmt}</span>
+                <span>{c.fmt}{c.dates ? ` · ${c.dates}` : ''}</span>
               </div>
               <div style={{ display:'flex', gap:'5px', marginTop:'3px', flexWrap:'wrap' }}>
                 {c.cert && c.cert !== 'N/A' && c.cert !== '' && c.cert.split(',').map(ct => (
@@ -624,6 +656,102 @@
               </div>
             </div>
           )}
+        </div>
+      );
+    }
+
+    // ── SEMESTER TIMELINE ─────────────────────────────────────────────────────────
+    function SemesterTimeline({ courses, conflicts, priorities }) {
+      const LABEL_W = 150;
+      const ROW_H   = 26;
+
+      const monthMarkers = [8,9,10,11].map(m => ({ d: new Date(2025,m,1), label: MONTH_NAMES[m] }));
+      const weekMarkers = [];
+      let wd = new Date(SEM_START);
+      while (wd <= SEM_END) { weekMarkers.push(new Date(wd)); wd = new Date(wd.getTime() + 7*86400000); }
+
+      if (!courses.length) return (
+        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ textAlign:'center', color:'#94A3B8' }}>
+            <div style={{ fontSize:'36px', marginBottom:'8px' }}>📊</div>
+            <div style={{ fontSize:'15px', fontWeight:600 }}>Select courses to see the semester timeline</div>
+            <div style={{ fontSize:'13px', marginTop:'4px' }}>Each course bar shows its actual run dates</div>
+          </div>
+        </div>
+      );
+
+      return (
+        <div style={{ flex:1, overflowY:'auto', padding:'16px', background:'#F8FAFC' }}>
+          <div style={{ background:'white', borderRadius:'10px', border:'1px solid #E2E8F0', overflow:'hidden' }}>
+            <div style={{ background:'#003262', color:'white', padding:'10px 16px', fontSize:'13px', fontWeight:700 }}>
+              Fall 2025 Semester · Aug 18 – Dec 14 · {courses.reduce((s,c)=>s+c.units,0)} units selected
+            </div>
+            <div style={{ padding:'16px 20px', overflowX:'auto' }}>
+              <div style={{ minWidth:'500px' }}>
+                {/* Month labels row */}
+                <div style={{ marginLeft:`${LABEL_W}px`, position:'relative', height:'18px', marginBottom:'2px' }}>
+                  <div style={{ position:'absolute', left:'0%', fontSize:'11px', fontWeight:700, color:'#475569' }}>Aug</div>
+                  {monthMarkers.map(({d,label}) => (
+                    <div key={label} style={{ position:'absolute', left:`${(semOff(d)/SEM_DAYS)*100}%`, fontSize:'11px', fontWeight:700, color:'#475569', transform:'translateX(-3px)' }}>{label}</div>
+                  ))}
+                </div>
+                {/* Week tick marks */}
+                <div style={{ marginLeft:`${LABEL_W}px`, position:'relative', height:'8px', marginBottom:'10px', borderBottom:'1px solid #CBD5E1' }}>
+                  {weekMarkers.map((w,i) => (
+                    <div key={i} style={{ position:'absolute', left:`${(semOff(w)/SEM_DAYS)*100}%`, bottom:0, height:'5px', width:'1px', background:'#CBD5E1' }} />
+                  ))}
+                </div>
+                {/* Course rows */}
+                {courses.map(c => {
+                  const col  = COLORS[getArea(c.id)];
+                  const p    = priorities && priorities[c.id];
+                  const pc   = p && PCOLS[p];
+                  const dr   = parseDateRange(c.dates);
+                  const isC  = conflicts.has(c.id);
+                  const startPct = dr ? (semOff(dr.start)/SEM_DAYS)*100 : null;
+                  const widthPct = dr ? Math.max((semOff(dr.end)-semOff(dr.start))/SEM_DAYS*100, 0.8) : null;
+                  const sameDay  = dr && dr.start.getTime()===dr.end.getTime();
+
+                  return (
+                    <div key={c.id} style={{ display:'flex', alignItems:'center', height:`${ROW_H}px`, marginBottom:'4px' }}>
+                      {/* Course label */}
+                      <div style={{ width:`${LABEL_W}px`, flexShrink:0, paddingRight:'10px', display:'flex', alignItems:'center', gap:'4px', overflow:'hidden' }}>
+                        {p && <span style={{ fontSize:'9px', fontWeight:800, color:pc.t, background:pc.bg, border:`1px solid ${pc.b}`, borderRadius:'2px', padding:'0 3px', flexShrink:0 }}>{p}</span>}
+                        <span style={{ fontSize:'11px', color:'#1E293B', fontWeight:600, overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis', flex:1 }} title={c.name}>{c.name}</span>
+                        <span style={{ fontSize:'10px', color:'#94A3B8', flexShrink:0, marginLeft:'2px' }}>{c.units}u</span>
+                      </div>
+                      {/* Timeline track */}
+                      <div style={{ flex:1, position:'relative', height:'18px', background:'#F1F5F9', borderRadius:'4px', overflow:'hidden' }}>
+                        {weekMarkers.map((w,i) => (
+                          <div key={i} style={{ position:'absolute', left:`${(semOff(w)/SEM_DAYS)*100}%`, top:0, bottom:0, width:'1px', background:'white' }} />
+                        ))}
+                        {dr ? (
+                          <div title={`${c.name}\n${fmtD(dr.start)}${sameDay?'':' – '+fmtD(dr.end)}\n${c.days} · ${c.time}`}
+                            style={{ position:'absolute', left:`${startPct}%`, width:`${widthPct}%`, top:'1px', bottom:'1px',
+                              background: isC ? '#FCA5A5' : col.bg,
+                              border:`1.5px solid ${isC ? '#EF4444' : col.b}`,
+                              borderRadius:'3px', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+                            <span style={{ fontSize:'9px', color: isC ? '#B91C1C' : col.t, fontWeight:700, whiteSpace:'nowrap', padding:'0 4px' }}>
+                              {fmtD(dr.start)}{sameDay ? '' : ` – ${fmtD(dr.end)}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', paddingLeft:'6px' }}>
+                            <span style={{ fontSize:'9px', color:'#94A3B8' }}>{c.dates || 'Dates TBD'}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ padding:'8px 16px', borderTop:'1px solid #E2E8F0', fontSize:'10px', color:'#94A3B8', display:'flex', gap:'16px', flexWrap:'wrap' }}>
+              <span>Fall 2025: Aug 18 – Dec 14</span>
+              <span>Each tick mark = 1 week</span>
+              <span>Hover bars for details</span>
+            </div>
+          </div>
         </div>
       );
     }
