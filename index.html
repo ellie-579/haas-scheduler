@@ -176,6 +176,32 @@
       { id:'MBA299M-1',   name:'Marketing Strategy',                                   units:3, inst:'Villas-Boas, J. M.',                 days:'MW',      time:'11:00AM-12:30PM', fmt:'15 weeks',    dates:'8/24–12/9',         xlist:'',      notes:'',                    exp:false, bt:false, noDrop:false, cert:'N/A',    fn:'Marketing & Brand Management', ind:'Technology' },
     ];
 
+    // ── REVIEW DATA ──────────────────────────────────────────────────────────────
+    // Scores are out of 7. Add more courses here as you get data from Teaching Evaluations.
+    const REVIEWS = {
+      'MBA299M-1': {
+        courseWorth: 6.54,
+        instructorEffectiveness: 6.46,
+        difficulty: 4.50,
+        responses: 19,
+        term: 'Fall 2024',
+        comments: [
+          "Yes, one of the most fun classes at Haas to date",
+          "The simulation is a great way to apply what you've learned from Haas in a real-world environment. Definitely a good class to take as a more experienced 2nd year.",
+          "One of the most fun classes at Haas. Less work than you'd expect. Great learning by doing.",
+          "After going through the core and two semesters of electives, this was hands-down the best class I have taken at Haas.",
+          "Yes! Loved this class and the professor. The semester-long simulation we ran was so much fun and great first-hand experience in making real decisions.",
+          "I would absolutely recommend this course because it offers hands-on decision-making that really simulates real life. Whether you're going into entrepreneurship, consulting, or marketing, this is the course for you!",
+          "Absolutely! This is the class that linked theory to practice best at Haas.",
+          "I would 100% recommend this course, it is possibly the best I have taken in Haas!!",
+          "A must take to cap out your business school academic experience! This course entails a semester-long simulation game that serves as an excellent avenue to apply and test our strategy and marketing learnings.",
+          "Overall, the class should definitely be on everyone's list, and probably should be made part of core!",
+        ],
+      },
+      // Add more courses below, e.g.:
+      // 'MBA295B-1': { courseWorth: X.X, instructorEffectiveness: X.X, difficulty: X.X, responses: N, term: 'Fall 2024', comments: [] },
+    };
+
     // ── APP ──────────────────────────────────────────────────────────────────────
     function App() {
       const [selected, setSelected]       = useState(new Set());
@@ -190,6 +216,7 @@
       const [customCourses, setCustomCourses] = useState([]);
       const [showAddModal, setShowAddModal]   = useState(false);
       const [priorities, setPriorities]       = useState({});  // { courseId: 'P1'|'P2'|'P3' }
+      const [reviewCourse, setReviewCourse]   = useState(null); // courseId to show reviews for
 
       const allCourses = useMemo(() => [...COURSES, ...customCourses], [customCourses]);
 
@@ -341,7 +368,7 @@
               </div>
               {/* Course list */}
               <div style={{ flex:1, overflowY:'auto' }}>
-                {visible.map(c => <CourseCard key={c.id} course={c} selected={selected.has(c.id)} conflict={conflicts.has(c.id)} hovered={hovered===c.id} priority={priorities[c.id]} onToggle={() => toggle(c.id)} onHover={setHovered} onPriority={setPriority} />)}
+                {visible.map(c => <CourseCard key={c.id} course={c} selected={selected.has(c.id)} conflict={conflicts.has(c.id)} hovered={hovered===c.id} priority={priorities[c.id]} onToggle={() => toggle(c.id)} onHover={setHovered} onPriority={setPriority} onReview={() => setReviewCourse(c.id)} />)}
               </div>
               {/* Add new class button */}
               <div style={{ padding:'10px 12px', borderTop:'1px solid #E2E8F0', flexShrink:0 }}>
@@ -360,6 +387,8 @@
 
           {/* ── ADD MODAL ── */}
           {showAddModal && <AddCourseModal onAdd={addCourse} onClose={() => setShowAddModal(false)} existingCount={customCourses.length} />}
+          {/* ── REVIEWS MODAL ── */}
+          {reviewCourse && <ReviewsModal courseId={reviewCourse} courses={allCourses} onClose={() => setReviewCourse(null)} />}
         </div>
       );
     }
@@ -374,8 +403,9 @@
     };
 
     // ── COURSE CARD ───────────────────────────────────────────────────────────────
-    function CourseCard({ course: c, selected, conflict, hovered, priority, onToggle, onHover, onPriority }) {
+    function CourseCard({ course: c, selected, conflict, hovered, priority, onToggle, onHover, onPriority, onReview }) {
       const col = COLORS[getArea(c.id)];
+      const rev = REVIEWS[c.id];
       return (
         <div onMouseEnter={() => onHover(c.id)} onMouseLeave={() => onHover(null)}
           style={{ padding:'9px 12px', borderBottom:'1px solid #F1F5F9', transition:'background 0.1s',
@@ -403,6 +433,18 @@
                 {c.bt && <span style={{ fontSize:'10px', color:'#2563EB', background:'#DBEAFE', padding:'1px 5px', borderRadius:'3px', border:'1px solid #93C5FD' }}>💻 B&T</span>}
                 {c.xlist && c.xlist !== 'No' && <span style={{ fontSize:'10px', color:'#64748B', background:'#F1F5F9', padding:'1px 5px', borderRadius:'3px' }}>{c.xlist}</span>}
               </div>
+              {/* Review scores */}
+              {rev && (
+                <div style={{ marginTop:'6px', display:'flex', alignItems:'center', gap:'8px', flexWrap:'wrap' }}>
+                  <RatingBar label="Worth" value={rev.courseWorth} color="#22C55E" />
+                  <RatingBar label="Prof" value={rev.instructorEffectiveness} color="#3B82F6" />
+                  <RatingBar label="Diff" value={rev.difficulty} color="#F97316" />
+                  <button onClick={e => { e.stopPropagation(); onReview(); }}
+                    style={{ fontSize:'10px', color:'#6366F1', background:'#EEF2FF', border:'1px solid #C7D2FE', borderRadius:'4px', padding:'1px 6px', cursor:'pointer', marginLeft:'2px' }}>
+                    💬 {rev.responses} reviews
+                  </button>
+                </div>
+              )}
             </div>
             {/* Right column: select circle + priority buttons */}
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'6px', flexShrink:0 }}>
@@ -534,6 +576,78 @@
               </div>
             </div>
           )}
+        </div>
+      );
+    }
+
+    // ── RATING BAR ────────────────────────────────────────────────────────────────
+    function RatingBar({ label, value, color }) {
+      const pct = (value / 7) * 100;
+      return (
+        <div style={{ display:'flex', alignItems:'center', gap:'4px' }}>
+          <span style={{ fontSize:'9px', color:'#94A3B8', fontWeight:600, width:'26px' }}>{label}</span>
+          <div style={{ width:'40px', height:'5px', background:'#F1F5F9', borderRadius:'3px', overflow:'hidden' }}>
+            <div style={{ width:`${pct}%`, height:'100%', background:color, borderRadius:'3px' }} />
+          </div>
+          <span style={{ fontSize:'10px', color:'#475569', fontWeight:700 }}>{value.toFixed(1)}</span>
+        </div>
+      );
+    }
+
+    // ── REVIEWS MODAL ─────────────────────────────────────────────────────────────
+    function ReviewsModal({ courseId, courses, onClose }) {
+      const course = courses.find(c => c.id === courseId);
+      const rev = REVIEWS[courseId];
+      if (!course || !rev) return null;
+      const col = COLORS[getArea(courseId)];
+
+      return (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center' }}
+          onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+          <div style={{ background:'white', borderRadius:'12px', width:'560px', maxWidth:'95vw', maxHeight:'85vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}>
+            {/* Header */}
+            <div style={{ background:'#003262', color:'white', padding:'14px 20px', display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+              <div>
+                <div style={{ fontSize:'11px', opacity:0.7, marginBottom:'2px' }}>{courseId} · {rev.term}</div>
+                <div style={{ fontSize:'15px', fontWeight:800 }}>{course.name}</div>
+                <div style={{ fontSize:'12px', opacity:0.8, marginTop:'2px' }}>{course.inst}</div>
+              </div>
+              <button onClick={onClose} style={{ background:'none', border:'none', color:'white', fontSize:'20px', cursor:'pointer', lineHeight:1, padding:'0 4px', marginTop:'-2px' }}>×</button>
+            </div>
+            {/* Score cards */}
+            <div style={{ display:'flex', gap:0, borderBottom:'1px solid #E2E8F0' }}>
+              {[
+                { label:'Course Worth', value:rev.courseWorth, color:'#22C55E', bg:'#DCFCE7', sub:'out of 7' },
+                { label:'Instructor', value:rev.instructorEffectiveness, color:'#3B82F6', bg:'#DBEAFE', sub:'effectiveness' },
+                { label:'Difficulty', value:rev.difficulty, color:'#F97316', bg:'#FFEDD5', sub:'out of 7' },
+              ].map(m => (
+                <div key={m.label} style={{ flex:1, padding:'14px 16px', textAlign:'center', background:m.bg, borderRight:'1px solid #E2E8F0' }}>
+                  <div style={{ fontSize:'28px', fontWeight:900, color:m.color }}>{m.value.toFixed(2)}</div>
+                  <div style={{ fontSize:'12px', fontWeight:700, color:'#374151', marginTop:'2px' }}>{m.label}</div>
+                  <div style={{ fontSize:'10px', color:'#9CA3AF' }}>{m.sub}</div>
+                  <div style={{ marginTop:'6px', height:'6px', background:'rgba(255,255,255,0.6)', borderRadius:'3px', overflow:'hidden' }}>
+                    <div style={{ width:`${(m.value/7)*100}%`, height:'100%', background:m.color, borderRadius:'3px' }} />
+                  </div>
+                </div>
+              ))}
+              <div style={{ flex:1, padding:'14px 16px', textAlign:'center', background:'#F8FAFC' }}>
+                <div style={{ fontSize:'28px', fontWeight:900, color:'#6366F1' }}>{rev.responses}</div>
+                <div style={{ fontSize:'12px', fontWeight:700, color:'#374151', marginTop:'2px' }}>Responses</div>
+                <div style={{ fontSize:'10px', color:'#9CA3AF' }}>{rev.term}</div>
+              </div>
+            </div>
+            {/* Comments */}
+            <div style={{ flex:1, overflowY:'auto', padding:'16px 20px' }}>
+              <div style={{ fontSize:'12px', fontWeight:700, color:'#475569', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'10px' }}>
+                Student Comments — Would you recommend this course?
+              </div>
+              {rev.comments.map((comment, i) => (
+                <div key={i} style={{ padding:'10px 12px', marginBottom:'8px', background:'#F8FAFC', borderRadius:'8px', borderLeft:'3px solid #E2E8F0', fontSize:'13px', color:'#374151', lineHeight:1.5 }}>
+                  "{comment}"
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       );
     }
