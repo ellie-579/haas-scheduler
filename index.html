@@ -118,7 +118,7 @@
       if (!matches.length) return null;
       const dates = matches.map(m => new Date(2025, +m[1]-1, +m[2]));
       // Handle shorthand like "11/6–7" (same month, different end day)
-      const sr = s.match(/(\d{1,2})\/\d{1,2}[–\-](\d{1,2})(?!\d)/);
+      const sr = s.match(/(\d{1,2})\/\d{1,2}[–\-](\d{1,2})(?![\/\d])/);
       if (sr) dates.push(new Date(2025, +sr[1]-1, +sr[2]));
       return { start: new Date(Math.min(...dates)), end: new Date(Math.max(...dates)) };
     }
