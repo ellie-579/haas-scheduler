@@ -959,7 +959,7 @@
     // ── ADD COURSE MODAL ──────────────────────────────────────────────────────────
     function AddCourseModal({ onAdd, onClose, existingCount }) {
       const [form, setForm] = useState({
-        name:'', id:'', units:'3', inst:'', days:[], startTime:'', endTime:'', fmt:'15 weeks', notes:''
+        name:'', id:'', units:'3', inst:'', days:[], startTime:'', endTime:'', fmt:'15 weeks', dates:'', notes:''
       });
       const [error, setError] = useState('');
 
@@ -996,7 +996,7 @@
           id, name: form.name.trim(), units: parseInt(form.units)||3,
           inst: form.inst.trim() || 'TBD',
           days: buildDayStr(form.days),
-          time: timeStr, fmt: form.fmt, dates:'', xlist:'', notes: form.notes.trim(),
+          time: timeStr, fmt: form.fmt, dates: form.dates.trim(), xlist:'', notes: form.notes.trim(),
           exp:false, bt:false, noDrop:false, cert:'', fn:'', ind:''
         });
       };
@@ -1077,6 +1077,11 @@
                   <option value="Full weekend">Full Weekend</option>
                   <option value="Other">Other</option>
                 </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize:'12px', fontWeight:600, color:'#475569', display:'block', marginBottom:'4px' }}>Dates</label>
+                <input style={inputStyle} placeholder="e.g. 9/2–10/14  or  10/25 &amp; 11/1" value={form.dates} onChange={e => set('dates', e.target.value)} />
               </div>
 
               <div>
